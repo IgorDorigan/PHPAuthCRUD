@@ -1,0 +1,89 @@
+<?php
+
+namespace App\http;
+
+class Router
+{
+    private $routes = [];
+    private $prefix;
+
+    public function __construct($prefix = '')
+    {
+        $this->prefix = $prefix;
+    }
+
+    public function get($path, $callback, $middleware = [])
+    {
+        $this->routes['GET'][] = ['path' => $path, 'callback' => $callback, 'middleware' => $middleware];
+    }
+
+    public function post($path, $callback, $middleware = [])
+    {
+        $this->routes['POST'][] = ['path' => $path, 'callback' => $callback, 'middleware' => $middleware];
+    }
+
+    public function put($path, $callback, $middleware = [])
+    {
+        $this->routes['PUT'][] = ['path' => $path, 'callback' => $callback, 'middleware' => $middleware];
+    }
+
+    public function patch($path, $callback, $middleware = [])
+    {
+        $this->routes['PATCH'][] = ['path' => $path, 'callback' => $callback, 'middleware' => $middleware];
+    }
+
+    public function delete($path, $callback)
+    {
+        $this->routes['DELETE'][] = ['path' => $path, 'callback' => $callback];
+    }
+
+    public function run()
+    {
+        $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+
+        if ($this->prefix) {
+            $prefix = rtrim($this->prefix, '/'); // remove barra final
+            if (str_starts_with($uri, $prefix)) {
+                $uri = substr($uri, strlen($prefix));
+            }
+        }
+
+        if ($uri === '') $uri = '/';
+
+        $method = $_SERVER['REQUEST_METHOD'];
+
+        if ($method === 'POST' && isset($_POST['_method'])) {
+            $method = strtoupper($_POST['_method']);
+        }
+
+        foreach ($this->routes[$method] ?? [] as $route) {
+            $pattern = preg_replace('#\{(\w+)\}#', '(\w+)', $route['path']);
+            $pattern = "#^$pattern$#";
+
+            if (preg_match($pattern, $uri, $matches)) {
+                array_shift($matches);
+
+                foreach ($route['middleware'] as $middleware) {
+                    if (is_object($middleware)) {
+                        $instance = $middleware;
+                    } elseif (class_exists($middleware)) {
+                        $instance = new $middleware();
+                    } else {
+                        continue;
+                    }
+
+                    if (method_exists($instance, 'handle')) {
+                        $instance->handle();
+                    }
+                }
+
+
+                echo call_user_func_array($route['callback'], $matches);
+                return;
+            }
+        }
+
+        http_response_code(404);
+        echo "Página não encontrada";
+    }
+}
